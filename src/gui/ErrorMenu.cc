@@ -33,7 +33,7 @@ namespace enigma { namespace gui {
     ErrorMenu::ErrorMenu(std::string message, std::string quitTitle) : 
         text (message), quit (new gui::StaticTextButton(quitTitle, this)),
         rejectQuit (false), laterQuit (false) {
-        const video::VMInfo *vminfo = video::GetInfo();
+        const VMInfo *vminfo = video_engine->GetInfo();
         const int vshrink = vminfo->width < 640 ? 1 : 0;
         add(quit, Rect(vminfo->width-(vshrink?85:170), vminfo->height-(vshrink?30:60), 
                        vshrink?75:150, vshrink?42:40));
@@ -44,7 +44,7 @@ namespace enigma { namespace gui {
             quit (new gui::StaticTextButton(quitTitle, this)),
             reject (new gui::StaticTextButton(rejectTitle, this)),
             rejectQuit (false), laterQuit (false) {
-        const video::VMInfo *vminfo = video::GetInfo();
+        const VMInfo *vminfo = video_engine->GetInfo();
         const int vshrink = vminfo->width < 640 ? 1 : 0;
         add(quit, Rect(vminfo->width-(vshrink?85:170), vminfo->height-(vshrink?30:60), vshrink?75:150, vshrink?42:40));
         add(reject, Rect(vminfo->width-(vshrink?170:340), vminfo->height-(vshrink?30:60), vshrink?75:150, vshrink?42:40));
@@ -56,7 +56,7 @@ namespace enigma { namespace gui {
             reject (new gui::StaticTextButton(rejectTitle, this)),
             later (new gui::StaticTextButton(laterTitle, this)),
             rejectQuit (false), laterQuit (false) {
-        const video::VMInfo *vminfo = video::GetInfo();
+        const VMInfo *vminfo = video_engine->GetInfo();
         const int vshrink = vminfo->width < 640 ? 1 : 0;
         add(quit, Rect(vminfo->width-(vshrink?85:170), vminfo->height-(vshrink?30:60), vshrink?75:150, vshrink?42:40));
         add(later, Rect(vminfo->width-(vshrink?170:340), vminfo->height-(vshrink?30:60), vshrink?75:150, vshrink?42:40));
@@ -102,19 +102,13 @@ namespace enigma { namespace gui {
         int x     = 60;
         int y     = 60;
         int yskip = 25;
-        const video::VMInfo *vminfo = video::GetInfo();
+        const VMInfo *vminfo = video_engine->GetInfo();
         int width = vminfo->width - 120;
-        for (unsigned i=0; i<lines.size(); ) {
-            std::string::size_type breakPos = breakString(f, lines[i], 
-                    " ", width);
-            f->render(gc, x,  y, lines[i].substr(0,breakPos).c_str());
-            y += yskip;
-            if (breakPos != lines[i].size()) {
-                // process rest of line
-                lines[i] = lines[i].substr(breakPos);
-            } else {
-                // process next line
-                i++;
+        for (unsigned i = 0; i < lines.size(); i++) {
+            std::vector<std::string> subLines = ecl::breakToLines(f, lines[i], " ", width);
+            for (auto it = subLines.begin(); it != subLines.end(); it++) {
+                f->render(gc, x, y, *it);
+                y += yskip;
             }
         }
     }    

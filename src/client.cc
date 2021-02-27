@@ -30,6 +30,7 @@
 #include "MusicManager.hh"
 #include "player.hh"
 #include "resource_cache.hh"
+#include "video.hh"
 #include "world.hh"
 #include "nls.hh"
 #include "StateManager.hh"
@@ -196,6 +197,8 @@ void Client::handle_events() {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
+        // TODO: If we want umlauts and other special characters ingame,
+        //       we need to add SDL_TEXTINPUT and SDL_TEXTEDITING here.
         case SDL_KEYDOWN: on_keydown(e); break;
         case SDL_MOUSEMOTION:
             if (abs(e.motion.xrel) > 300 || abs(e.motion.yrel) > 300) {
@@ -206,18 +209,23 @@ void Client::handle_events() {
             break;
         case SDL_MOUSEBUTTONDOWN:
         case SDL_MOUSEBUTTONUP: on_mousebutton(e); break;
-        case SDL_ACTIVEEVENT: {
+        case SDL_MOUSEWHEEL:
+            if (e.wheel.y < 0) // mousewheel down: rotate inventory
+                rotate_inventory(+1);
+            if (e.wheel.y > 0) // mousewheel up: inverse rotate inventory
+                rotate_inventory(+1);
+            break;
+        case SDL_WINDOWEVENT: {
             update_mouse_button_state();
-            if (e.active.gain == 0 && !video::IsFullScreen())
+            if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                // TODO(SDL2): is this sthe right event? The old code had
+                // !video::IsFullScreen() as an additional check - necessary?
                 show_menu(false);
+            } else if (e.window.event == SDL_WINDOWEVENT_EXPOSED) {
+                display::RedrawAll(video_engine->GetScreen());
+            }
             break;
         }
-
-        case SDL_VIDEOEXPOSE: {
-            display::RedrawAll(video::GetScreen());
-            break;
-        }
-
         case SDL_QUIT:
             client::Msg_Command("abort");
             app.bossKeyPressed = true;
@@ -228,20 +236,39 @@ void Client::handle_events() {
 
 void Client::update_mouse_button_state() {
     int b = SDL_GetMouseState(0, 0);
-    player::InhibitPickup((b & SDL_BUTTON(1)) || (b & SDL_BUTTON(3)));
+    player::InhibitPickup((b & SDL_BUTTON_LMASK) || (b & SDL_BUTTON_RMASK));
 }
 
 void Client::on_mousebutton(SDL_Event &e) {
     if (e.button.state == SDL_PRESSED) {
-        if (e.button.button == 1) {
+        if (e.button.button == SDL_BUTTON_LEFT) {
             // left mousebutton -> activate first item in inventory
             server::Msg_ActivateItem();
-        } else if (e.button.button == 3 || e.button.button == 4) {
-            // right mousebutton, wheel down -> rotate inventory
+        } else if (e.button.button == SDL_BUTTON_RIGHT) {
+            // right mousebutton -> rotate inventory
             rotate_inventory(+1);
-        } else if (e.button.button == 5) {
-            // wheel down -> inverse rotate inventory
-            rotate_inventory(-1);
+        } else if (e.button.button == SDL_BUTTON_MIDDLE) {
+            switch (options::GetInt("MiddleMouseButtonMode")) {
+            case options::MIDDLEMOUSEBUTTON_NoOp: {
+                 break;
+            }
+            case options::MIDDLEMOUSEBUTTON_Pause: {
+                // like ESC
+                show_menu(true);
+                break;
+            }
+            case options::MIDDLEMOUSEBUTTON_Restart: {
+                // force a reload from file, like F3
+                lev::Proxy::releaseCache();
+                server::Msg_Command("restart");
+                break;
+            }
+            default: {
+                // Unknown option from the future.
+                // Interpret as default (shouldn't hurt).
+                show_menu(true);
+                break;
+            }}
         }
     }
     update_mouse_button_state();
@@ -372,8 +399,8 @@ void Client::user_input_next() {
 }
 
 void Client::on_keydown(SDL_Event &e) {
-    SDLKey keysym = e.key.keysym.sym;
-    SDLMod keymod = e.key.keysym.mod;
+    SDL_Keycode keysym = e.key.keysym.sym;
+    Uint16 keymod = e.key.keysym.mod;
 
     if (keymod & KMOD_CTRL) {
         switch (keysym) {
@@ -391,7 +418,7 @@ void Client::on_keydown(SDL_Event &e) {
         case SDLK_x: abort(); break;
         case SDLK_t:
             if (enigma::WizardMode) {
-                ecl::Screen *scr = video::GetScreen();
+                ecl::Screen *scr = video_engine->GetScreen();
                 ecl::TintRect(scr->get_surface(), display::GetGameArea(), 100, 100, 100, 0);
                 scr->update_all();
             }
@@ -402,13 +429,13 @@ void Client::on_keydown(SDL_Event &e) {
             }
             break;
         case SDLK_RETURN: {
-            video::TempInputGrab(false);
-            video::ToggleFullscreen();
+            ScopedInputGrab(false);
+            video_engine->ToggleFullscreen();
             sdl::FlushEvents();
         } break;
         default: break;
         };
-    } else if (keymod & KMOD_META) {
+    } else if (keymod & (KMOD_LGUI | KMOD_RGUI)) {
         switch (keysym) {
         case SDLK_q:  // Mac OS X application quit sequence
             app.bossKeyPressed = true;
@@ -445,64 +472,69 @@ void Client::on_keydown(SDL_Event &e) {
         case SDLK_F6: Msg_JumpBack(); break;
 
         case SDLK_F10: {
-            lev::Proxy *level = server::LoadedProxy;
-            std::string basename =
-                std::string("screenshots/") + level->getLocalSubstitutionLevelPath();
-            std::string fname = basename + ".png";
-            std::string fullPath;
-            int i = 1;
-            while (app.resourceFS->findFile(fname, fullPath)) {
-                fname = basename + ecl::strf("#%d", i++) + ".png";
-            }
-            std::string savePath = app.userImagePath + "/" + fname;
-            video::Screenshot(savePath);
+            video_engine->Screenshot(server::LoadedProxy->getNextScreenshotPath());
             break;
         }
         case SDLK_RETURN: process_userinput(); break;
         case SDLK_BACKSPACE: user_input_backspace(); break;
         case SDLK_UP: user_input_previous(); break;
         case SDLK_DOWN: user_input_next(); break;
-        default:
-            if (e.key.keysym.unicode && (e.key.keysym.unicode & 0xff80) == 0) {
-                char ascii = static_cast<char>(e.key.keysym.unicode & 0x7f);
+        case SDLK_SPACE: user_input_append(' '); break;
+        default: {
+            // SDL2's GetKeyName only returns uppercase keys.
+            const char *key = SDL_GetKeyName(e.key.keysym.sym);
+            const bool is_ascii = strlen(key) == 1 && ((key[0] & 0x7f) == key[0]);
+            const bool capslock = keymod & KMOD_CAPS;
+            if (is_ascii) {
+                char ascii = key[0];
                 if (isalnum(ascii) || strchr(" .-!\"$%&/()=?{[]}\\#'+*~_,;.:<>|",
-                                             ascii))  // don't add '^' or change history code
-                {
-                    user_input_append(ascii);
+                                             ascii)) { // don't add '^' or change history code
+                    if (keymod & (KMOD_LSHIFT | KMOD_RSHIFT)) {
+                        user_input_append(capslock ? std::tolower(ascii) : ascii);
+                    } else {
+                        user_input_append(capslock ? ascii : std::tolower(ascii));
+                    }
                 }
             }
-
             break;
+        }
         }
     }
 }
 
 static const char *helptext_ingame[] = {
     N_("Left mouse button:"), N_("Activate/drop leftmost inventory item"),
-    N_("Right mouse button:"), N_("Rotate inventory items"), N_("Escape:"), N_("Show game menu"),
-    N_("Shift+Escape:"), N_("Quit game immediately"), N_("F1:"), N_("Show this help"), N_("F3:"),
-    N_("Kill current marble"), N_("Shift+F3:"), N_("Restart the current level"), N_("F4:"),
-    N_("Skip to next level"), N_("F5:"), 0,  // see below
-    N_("F6:"), N_("Jump back to last level"), N_("F10:"), N_("Make screenshot"),
-    N_("Left/right arrow:"), N_("Change mouse speed"), N_("Alt+x:"), N_("Return to level menu"),
+    N_("Right mouse button:"), N_("Rotate inventory items"),
+    N_("Escape:"), N_("Show game menu"),
+    N_("Shift+Escape:"), N_("Quit game immediately"),
+    N_("F1:"), N_("Show this help"),
+    N_("F3:"), N_("Kill current marble"),
+    N_("Shift+F3:"), N_("Restart the current level"),
+    N_("Shift+Ctrl+F3:"), N_("Reload and restart the current level"),
+    N_("F4:"), N_("Skip to next level"),
+    N_("F5:"), 0,  // see below
+    N_("F6:"), N_("Jump back to last level"),
+    N_("F10:"), N_("Make screenshot"),
+    N_("Left/right arrow:"), N_("Change mouse speed"),
+    N_("Alt+x:"), N_("Return to level menu"),
     //    N_("Alt+Return:"),              N_("Switch between fullscreen and window"),
     0};
 
 void Client::show_help() {
     server::Msg_Pause(true);
-    video::TempInputGrab grab(false);
+    ScopedInputGrab grab(false);
 
-    helptext_ingame[17] = app.state->getInt("NextLevelMode") == lev::NEXT_LEVEL_NOT_BEST
+    helptext_ingame[19] = app.state->getInt("NextLevelMode") == lev::NEXT_LEVEL_NOT_BEST
                               ? _("Skip to next level for best score hunt")
                               : _("Skip to next unsolved level");
 
-    video::ShowMouse();
+    video_engine->ShowMouse();
     gui::displayHelp(helptext_ingame, 200);
-    video::HideMouse();
+    video_engine->HideMouse();
 
     update_mouse_button_state();
     if (m_state == cls_game)
-        display::RedrawAll(video::GetScreen());
+        display::RedrawAll(video_engine->GetScreen());
 
     server::Msg_Pause(false);
     game::ResetGameTimer();
@@ -523,17 +555,17 @@ void Client::show_menu(bool isESC) {
 
     server::Msg_Pause(true);
 
-    ecl::Screen *screen = video::GetScreen();
+    ecl::Screen *screen = video_engine->GetScreen();
 
-    video::TempInputGrab grab(false);
+    ScopedInputGrab grab(false);
 
-    video::ShowMouse();
+    video_engine->ShowMouse();
     {
         int x, y;
         display::GetReferencePointCoordinates(&x, &y);
         enigma::gui::GameMenu(x, y).manage();
     }
-    video::HideMouse();
+    video_engine->HideMouse();
     update_mouse_button_state();
     if (m_state == cls_game)
         display::RedrawAll(screen);
@@ -548,7 +580,7 @@ void Client::show_menu(bool isESC) {
 void Client::draw_screen() {
     switch (m_state) {
     case cls_error: {
-        ecl::Screen *scr = video::GetScreen();
+        ecl::Screen *scr = video_engine->GetScreen();
         ecl::GC gc(scr->get_surface());
         blit(gc, 0, 0, enigma::GetImage("menu_bg", ".jpg"));
         ecl::Font *f = enigma::GetFont("menufont");
@@ -559,18 +591,13 @@ void Client::draw_screen() {
         int x = 60;
         int y = 60;
         int yskip = 25;
-        const video::VMInfo *vminfo = video::GetInfo();
+        const VMInfo *vminfo = video_engine->GetInfo();
         int width = vminfo->width - 120;
-        for (unsigned i = 0; i < lines.size();) {
-            std::string::size_type breakPos = ecl::breakString(f, lines[i], " ", width);
-            f->render(gc, x, y, lines[i].substr(0, breakPos).c_str());
-            y += yskip;
-            if (breakPos != lines[i].size()) {
-                // process rest of line
-                lines[i] = lines[i].substr(breakPos);
-            } else {
-                // process next line
-                i++;
+        for (unsigned i = 0; i < lines.size(); i++) {
+            std::vector<std::string> subLines = ecl::breakToLines(f, lines[i], " ", width);
+            for (auto it = subLines.begin(); it != subLines.end(); it++) {
+                f->render(gc, x, y, *it);
+                y += yskip;
             }
         }
         scr->update_all();
@@ -614,9 +641,8 @@ void Client::tick(double dtime) {
     case cls_idle: break;
 
     case cls_preparing_game: {
-        video::TransitionEffect *fx = m_effect.get();
-        if (fx && !fx->finished()) {
-            fx->tick(dtime);
+        if (m_effect && !m_effect->finished()) {
+            m_effect->tick(dtime);
         } else {
             m_effect.reset();
             server::Msg_StartGame();
@@ -675,7 +701,7 @@ void Client::tick(double dtime) {
         for (; m_timeaccu >= timestep; m_timeaccu -= timestep) {
             display::Tick(timestep);
         }
-        display::Redraw(video::GetScreen());
+        display::Redraw(video_engine->GetScreen());
         handle_events();
         break;
     }
@@ -796,8 +822,9 @@ void Client::level_loaded(bool isRestart) {
     lev::Proxy *curProxy = ind->getCurrent();
 
     // update window title
-    video::SetCaption(ecl::strf(_("Enigma pack %s - level #%d: %s"), ind->getName().c_str(),
-                                ind->getCurrentLevel(), curProxy->getTitle().c_str()).c_str());
+    video_engine->SetCaption(ecl::strf(_("Enigma pack %s - level #%d: %s"), ind->getName().c_str(),
+                                       ind->getCurrentLevel(),
+                                       curProxy->getTitle().c_str()).c_str());
 
     std::string hunted = init_hunted_time();  // sets m_hunt_against_time (used below)
     documentHistory.clear();
@@ -822,11 +849,11 @@ void Client::level_loaded(bool isRestart) {
     sound::StartLevelMusic();
 
     // start screen transition
-    ecl::GC gc(video::BackBuffer());
+    ecl::GC gc(video_engine->BackBuffer());
     display::DrawAll(gc);
 
-    m_effect.reset(video::MakeEffect((isRestart ? video::TM_SQUARES : video::TM_PUSH_RANDOM),
-                                     video::BackBuffer()));
+    m_effect = video::CreateEffect((isRestart ? video::TM_NONE : video::TM_PUSH_RANDOM),
+                                   video_engine->BackBuffer());
     m_cheater = false;
     m_state = cls_preparing_game;
 }

@@ -67,7 +67,7 @@ namespace enigma { namespace gui {
 
         virtual bool on_event(const SDL_Event &/*e*/);
         Uint8 lastMouseButton() {return mouseButton;}
-        SDLMod lastModifierKeys() { return modifierKeys; }
+        Uint16 lastModifierKeys() { return modifierKeys; }
         
 
         virtual void move (int x, int y);
@@ -109,25 +109,10 @@ namespace enigma { namespace gui {
         ecl::Rect        area;
         Container      *m_parent;
         ActionListener *m_listener;
-        SDLMod  modifierKeys;
+        Uint16  modifierKeys;
         Uint8   mouseButton;
     };
 
-#if 0
-/* -------------------- EmptyWidget -------------------- */
-    class EmptyWidget : public Widget {
-    public:
-        EmptyWidget () : Widget ()
-        {}
-
-        virtual void draw (ecl::GC &gc, const ecl::Rect &r) 
-        {}
-
-        virtual void naturalsize (int &w, int &h) const {
-            w = h = 0;
-        }
-    };
-#endif
 /* -------------------- AreaManager -------------------- */
 
     class AreaManaged {
@@ -354,13 +339,13 @@ namespace enigma { namespace gui {
     protected:
         bool on_event(const SDL_Event &e) override;
         void deactivate() override;
-        SDLKey getLastUpSym();
+        SDL_Keycode getLastUpSym();
         Uint8 getLastUpButton();
         virtual bool soundOk(); 
     private:
         bool m_pressedp;
-        SDLKey lastUpSym;
-        Uint8 lastUpBotton;
+        SDL_Keycode lastUpSym;
+        Uint8 lastUpButton;
     };
 
 /* -------------------- TextButton -------------------- */
@@ -427,7 +412,7 @@ namespace enigma { namespace gui {
 /* -------------------- ValueButton -------------------- */
     class ValueButton: public TextButton {
     public:
-        ValueButton(int min_value_, int max_value_);
+        ValueButton(int min_value_, int max_value_, ActionListener *al = NULL);
 
         virtual int get_value() const     = 0;
         virtual void set_value(int value) = 0;
@@ -440,6 +425,11 @@ namespace enigma { namespace gui {
 
         // Widget interface.
         virtual void on_action(Widget *w) override;
+
+        // ValueButton uses listener in another way, so for event
+        // handling we have to introduce a second ActionListener here.
+        ActionListener *secondaryListener;
+
     protected:
         void init(); // called in ctor of derived
         virtual bool soundOk() override; 

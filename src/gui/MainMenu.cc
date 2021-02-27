@@ -18,6 +18,7 @@
 
 #include "gui/MainMenu.hh"
 #include "gui/LevelMenu.hh"
+#include "gui/SearchMenu.hh"
 #include "gui/OptionsMenu.hh"
 #include "gui/InfoMenu.hh"
 #include "gui/LevelPackMenu.hh"
@@ -30,7 +31,6 @@
 #include "options.hh"
 #include "resource_cache.hh"
 #include "MusicManager.hh"
-#include "video.hh"
 #include "world.hh"
 
 #include "netgame.hh"
@@ -39,28 +39,12 @@ using namespace ecl;
 using namespace std;
 
 namespace enigma { namespace gui {
-/* -------------------- Helper routines -------------------- */
-
-    /*! Change the video mode.  Because this opens a new screen with a
-      new resolution, the display engine must be re-initialized to
-      load the appropriate models. */
-    void ChangeVideoMode()
-    {
-        enigma::WorldPrepareLevel();      // make sure no references to models remain
-        enigma::ClearFontCache();
-        video::ChangeVideoMode();
-        LevelPreviewCache::instance()->clear();
-        enigma::ClearImageCache();
-        display::Shutdown();
-        display::Init();
-    }
-
 
     /* -------------------- NetworkMenu -------------------- */
 
     NetworkMenu::NetworkMenu ()
     {
-        const video::VMInfo *vminfo = video::GetInfo();
+        const VMInfo *vminfo = video_engine->GetInfo();
 
         BuildVList b(this, Rect((vminfo->width - 150)/2,150,150,40), 5);
         startgame = b.add(new StaticTextButton(N_("Start Game"), this));
@@ -91,7 +75,7 @@ namespace enigma { namespace gui {
 
     void NetworkMenu::draw_background(ecl::GC &gc)
     {
-        video::SetCaption (("Enigma - Network Menu"));
+        set_caption(_("Enigma - Network Menu"));
         blit(gc, 0,0, enigma::GetImage("menu_bg", ".jpg"));
     }
 
@@ -278,7 +262,7 @@ namespace enigma { namespace gui {
     };
 
     MainHelpMenu::MainHelpMenu () {
-        const video::VMInfo *vminfo = video::GetInfo();
+        const VMInfo *vminfo = video_engine->GetInfo();
         const bool vshrink = vminfo->width < 640 ;
 
         BuildVList b = vshrink? BuildVList(this, Rect(40, 40, 100, 25), 3)
@@ -304,18 +288,18 @@ namespace enigma { namespace gui {
 
     void MainHelpMenu::on_action(gui::Widget *w) {
         if (w == homepage) {
-            video::SetFullscreen(false);
+            video_engine->SetFullscreen(false);
             ecl::BrowseUrl("http://www.enigma-game.org");
         } else if (w == docs) {
-            video::SetFullscreen(false);
+            video_engine->SetFullscreen(false);
             ecl::BrowseUrl("file://" + app.docPath + "/index.html");
         } else if (w == paths) {
             showPaths();
         } else if (w == autofolder) {
-            video::SetFullscreen(false);
+            video_engine->SetFullscreen(false);
             ecl::ExploreFolder(ecl::BeautifyPath(app.userPath + "/levels/auto"));
         } else if (w == scorefolder) {
-            video::SetFullscreen(false);
+            video_engine->SetFullscreen(false);
             ecl::ExploreFolder(ecl::BeautifyPath(app.userPath));
         } else if (w == credits) {
             displayInfo(credit_text, 9);
@@ -327,7 +311,7 @@ namespace enigma { namespace gui {
     }
 
     void MainHelpMenu::draw_background(ecl::GC &gc) {
-        video::SetCaption (("Enigma - Help Menu"));
+        set_caption(_("Enigma - Help Menu"));
         blit(gc, 0,0, enigma::GetImage("menu_bg", ".jpg"));
     }
 
@@ -339,7 +323,7 @@ namespace enigma { namespace gui {
         std::string pathstrings[25];
         std::string work;
         Font *menufont = enigma::GetFont("menufont");
-        const video::VMInfo *vminfo = video::GetInfo();
+        const VMInfo *vminfo = video_engine->GetInfo();
         int width = vminfo->width - 80;
         int i = 0;
 
@@ -414,23 +398,26 @@ namespace enigma { namespace gui {
 
     void MainMenu::build_menu()
     {
-        const video::VMInfo *vminfo = video::GetInfo();
+        const VMInfo *vminfo = video_engine->GetInfo();
         const int vshrink = vminfo->width < 640 ? 1 : 0;
         const int vsmall = vminfo->width < 800 ? 1 : 0;
-        int y[] = {75, 170, 190, 220, 220};
+        int y[] = {75, 170, 205, 220, 220}; // y[0] and y[1] are actually not used
         // parameters to use when flags are not at top: {75, 150, 170, 200, 200};
-#ifdef ENABLE_EXPERIMENTAL
-        y[1] = 150;
-#endif
-        BuildVList b(this, Rect(vshrink?40:(vminfo->width - 160)/2, vshrink?120:y[vminfo->tt], vshrink?100:160, vshrink?25:40), vshrink?3:6);
-        BuildVList br = vshrink? BuildVList(this, Rect(180, 120, 100, 25), 3) : BuildVList(this, Rect(0, 0, 0, 0), 0);
-        BuildVList *brp = vshrink? &br : &b;
+        BuildVList  b(this, vshrink ? Rect(40, 120, 100, 25)
+                           : vsmall ? Rect(80, 200, 200, 50)
+                                    : Rect((vminfo->width - 160)/2, y[vminfo->tt], 160, 40),
+                            vshrink ? 4 : vsmall ? 10 : 8);
+        BuildVList br(this, vshrink ? Rect(180, 120, 100, 25)
+                                    : Rect(360, 200, 200, 50),
+                            vshrink ? 4 : vsmall ? 10 : 8);
+        BuildVList *brp = vsmall ? &br : &b;
         startgame = b.add(new StaticTextButton(N_("Start Game"), this));
         levelpack = b.add(new StaticTextButton(N_("Level Pack"), this));
 #ifdef ENABLE_EXPERIMENTAL
         m_netgame   = b.add(new StaticTextButton(N_("Network Game"), this));
 #endif
-        options     = b.add(new StaticTextButton(N_("Options"), this));
+        search      = b.add(new StaticTextButton(N_("Search"), this));
+        options     = brp->add(new StaticTextButton(N_("Options"), this));
 #if 0
         update      = brp->add(new StaticTextButton(N_("Update"), this));
 #endif
@@ -467,9 +454,9 @@ namespace enigma { namespace gui {
 
     void MainMenu::draw_background(ecl::GC &gc)
     {
-        const video::VMInfo *vminfo = video::GetInfo();
+        const VMInfo *vminfo = video_engine->GetInfo();
 
-        video::SetCaption (("Enigma - Main Menu"));
+        set_caption(_("Enigma - Main Menu"));
         sound::StartMenuMusic();
 
         blit(gc, vminfo->mbg_offsetx, vminfo->mbg_offsety, enigma::GetImage("menu_bg", ".jpg"));
@@ -477,10 +464,10 @@ namespace enigma { namespace gui {
         Font *f = enigma::GetFont("levelmenu");
         Surface * logo(enigma::GetImage("enigma_logo3"));
         int x0=(vminfo->width - logo->width())/2;
-        int y0[] = {0, 50, 60, 70, 80};
+        int y0[] = {0, 57, 60, 70, 80};
         // parameters to use when flags are not at top: {0, 30, 40, 50, 60};
 #ifdef ENABLE_EXPERIMENTAL
-        y0[1] = 30;
+        y0[1] = 57;  // might need adaptation when more buttons are added
 #endif
         blit(gc, x0, y0[vminfo->tt], logo);
         f->render (gc, 5, vminfo->height - 20, app.getVersionInfo().c_str());
@@ -489,7 +476,7 @@ namespace enigma { namespace gui {
     bool MainMenu::on_event (const SDL_Event &e) {
         switch (e.type) {
             case SDL_KEYDOWN:
-                SDLKey keysym = e.key.keysym.sym;
+                SDL_Keycode keysym = e.key.keysym.sym;
                 switch (keysym) {
                 case SDLK_F1:
                 case SDLK_F2: {
@@ -514,8 +501,26 @@ namespace enigma { namespace gui {
         } else if (w == levelpack) {
             LevelPackMenu m;
             m.manage();
+        } else if (w == search) {
+            SearchMenu m;
+            m.manage();
+            if (m.isSearchQuit()) {
+                // show search result levelpack
+                LevelMenu ml;
+                if (ml.manage() && !ml.isMainQuit()) {
+                    // ESC in LevelMenu in cade we are a submenu of LevelMenu or
+                    // Main button has been pressed in LevelMenu
+                    LevelPackMenu mlp;
+                    mlp.manage();
+                }
+            }
+            invalidate_all();
         } else if (w == options) {
-            ShowOptionsMenu(0);
+            ShowOptionsMenu(0, false);
+            clear();
+            reset_active_widget();
+            build_menu();
+            invalidate_all();
         } else if (w == help) {
             MainHelpMenu m;
             m.manage();
@@ -543,18 +548,7 @@ namespace enigma { namespace gui {
         invalidate_all();
     }
 
-    void MainMenu::tick(double /* dtime */)
-    {
-        bool isFullScreen = app.prefs->getBool("FullScreen");
-        if (app.selectedVideoMode != video::GetVideoMode()
-                || isFullScreen != video::IsFullScreen())
-        {
-            ChangeVideoMode();
-            clear();
-            reset_active_widget ();
-            build_menu();
-            invalidate_all();
-        }
+    void MainMenu::tick(double /* dtime */) {
     }
 
 /* -------------------- Functions -------------------- */

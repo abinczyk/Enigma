@@ -23,14 +23,16 @@
 #include "gui/TextField.hh"
 
 namespace enigma { namespace gui {
-    class VideoModeButton;
-    
+    class FullscreenModeButton;
+    class WindowSizeButton;
+    class FullscreenTilesetButton;
+    class WindowTilesetButton;
+
 /* -------------------- OptionsMenu -------------------- */
 
     class OptionsMenu : public Menu {
     public:
-        OptionsMenu(ecl::Surface *background_);
-        ~OptionsMenu();
+        OptionsMenu(ecl::Surface *background_, bool gameIsOngoing_);
         virtual void quit();
 
     private:
@@ -40,11 +42,11 @@ namespace enigma { namespace gui {
         
         // Menu interface.
         void draw_background(ecl::GC &gc);
-        void tick(double dtime) {}
+        void tick(double dtime);
 
         // Page structure.
         enum OptionsPage { OPTIONS_MAIN, OPTIONS_VIDEO, OPTIONS_AUDIO,
-                           OPTIONS_CONFIG, OPTIONS_PATHS };
+                           OPTIONS_CONFIG, OPTIONS_PATHS, OPTIONS_VIDEOCHECK };
         void open_page(OptionsPage new_page);
         void close_page();
 
@@ -59,79 +61,30 @@ namespace enigma { namespace gui {
         gui::StaticTextButton *but_config_options;
         gui::StaticTextButton *but_paths_options;
         gui::BoolOptionButton *fullscreen;
-        gui::VideoModeButton *videomode;
+        gui::FullscreenModeButton *fullscreenmode;
+        gui::WindowSizeButton *windowsize;
+        gui::FullscreenTilesetButton *fullscreentileset;
+        gui::WindowTilesetButton *windowtileset;
+        gui::StaticTextButton *videocheck_button_yes;
+        gui::StaticTextButton *videocheck_button_no;
+        gui::Label *videocheck_tick_down;
         gui::TextField *userNameTF;
         gui::TextField *userPathTF;
         gui::TextField *userImagePathTF;
+        gui::TextField *localizationPathTF;
         gui::TextField *menuMusicTF;
         ecl::Surface *background;
-        std::string  previous_caption;
-    };
-
-/* -------------------- Options Buttons -------------------- */
-
-    class FullscreenButton : public BoolOptionButton {
-    public:
-        FullscreenButton(ActionListener *al = 0);
+        bool gameIsOngoing;
+        bool videoSettingsTouched;
+        bool showVideoCheck;
+        OptionsPage pageAfterVideoCheck;
+        OptionsPage currentPage;
     };
 
 
-    class VideoModeButton : public ValueButton {
-        int get_value() const;
-        void set_value(int value);
-        std::string get_text(int value) const;
-    public:
-        VideoModeButton();
-        void reinit();
-    };
-
-    class StereoButton : public ValueButton {
-        int get_value() const;
-        void set_value(int value);
-        std::string get_text(int value) const;
-    public:
-        StereoButton();
-    };
-
-
-    class SoundSetButton : public ValueButton {
-    public:
-        SoundSetButton();
-        int get_value() const;
-        void set_value(int value);
-        std::string get_text(int value) const;
-    };
-
-    class MenuMusicButton : public ValueButton {
-    public:
-        MenuMusicButton();
-        int get_value() const;
-        void set_value(int value);
-        std::string get_text(int value) const;
-    };
-    
-    class LanguageButton : public ValueButton {
-        int get_value() const;
-        void set_value(int value);
-        std::string get_text(int value) const;
-        bool inInit;
-        ActionListener *myListener;
-    public:
-        // second user action listener: first one is misused by ValueButton 
-        LanguageButton (ActionListener *al = 0);        
-    };
-
-    class GammaButton : public ValueButton {
-        int get_value() const;
-        void set_value(int value);
-        std::string get_text(int value) const;
-    public:
-        GammaButton();        
-    };
-    
 /* -------------------- Functions -------------------- */
 
-    void ShowOptionsMenu(ecl::Surface *background);
+    void ShowOptionsMenu(ecl::Surface *background, bool gameIsOngoing);
 
 }} // namespace enigma::gui
 #endif

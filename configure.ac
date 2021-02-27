@@ -1,5 +1,5 @@
 # Process this file with autoconf to produce a configure script.
-AC_INIT([enigma],[1.21])
+AC_INIT([enigma], [1.30], [enigma-devel@nongnu.org])
 AC_PREREQ(2.59)
 AC_CANONICAL_BUILD
 AC_CANONICAL_TARGET
@@ -12,9 +12,6 @@ AC_GNU_SOURCE
 
 ALL_LINGUAS="de fr nl it es sv ru hu pt fi uk be el pl cs gd hr sk da"
 AC_SUBST(ALL_LINGUAS)
-
-dnl Save a _NOGETTEXT state for possible MacOS special case
-LIBS_NOGETTEXT="$LIBS"
 
 AM_GNU_GETTEXT
 
@@ -39,24 +36,6 @@ esac
 
 AM_CONDITIONAL(MINGW32, test x$MINGW32 = xyes)
 AM_CONDITIONAL(LINUX, test x$LINUX = xyes)
-
-dnl ----------------------------------------
-dnl Mac requires libintl to be linked statically and doesn't make that easy
-dnl gettext project (for libintl) refuses to support use of pkg-config but doesn't provide an
-dnl equivalent way to get the lib directory it is installed in. This requires use of --with-libintl-prefix configure option.
-dnl ---------------------------------------
-if test "x$MACOSX" = xyes; then
-  LIBS="$LIBS_NOGETTEXT"
-  if test -z "$with_libintl_prefix" ; then
-    AC_MSG_ERROR([On MacOS --with-libintl-prefix must be specified to find lib/libintl.a for static link])
-  fi
-  if test -d "${with_libintl_prefix}/lib" && test -f "${with_libintl_prefix}/lib/libintl.a" ; then
-    LIBINTL="${with_libintl_prefix}/lib/libintl.a"
-    LIBS="$LIBINTL /usr/lib/libiconv.dylib $LIBS"
-  else
-    AC_MSG_ERROR([The specified --with-libintl-prefix did not contain lib/libintl.a which is required on MacOS for static link])
-  fi
-fi
 
 dnl ======================================================================
 dnl Check for programs
@@ -135,7 +114,7 @@ CFLAGS_NOSDL="$CFLAGS"
 CXXFLAGS_NOSDL="$CXXFLAGS"
 LIBS_NOSDL="$LIBS"
 
-AM_PATH_SDL(1.2.0)
+AM_PATH_SDL2(2.0.0)
 AC_SUBST(SDL_LIBS)
 AC_SUBST(SDL_CFLAGS)
 dnl The flags are now substituted inside the Makefile, but not used for the
@@ -147,63 +126,19 @@ CXXFLAGS="$CXXFLAGS $SDL_CFLAGS"
 LIBS="$LIBS $SDL_LIBS"
 
 dnl ----------------------------------------
-dnl Check for SDL image library
+dnl Check for SDL support libraries
 dnl ----------------------------------------
-AC_CHECK_LIB(SDL_image,main,,[AC_MSG_ERROR([SDL_image is required to compile Enigma])])
+AC_CHECK_LIB(SDL2_image,main,,[AC_MSG_ERROR([SDL2_image is required to compile Enigma])])
+SDL_LIBS="$SDL_LIBS -lSDL2_image"
+AC_CHECK_LIB(SDL2_mixer,main,,[AC_MSG_ERROR([SDL2_mixer is required to compile Enigma])])
+SDL_LIBS="$SDL_LIBS -lSDL2_mixer"
+AC_CHECK_LIB(SDL2_ttf, main,,[AC_MSG_ERROR([SDL2_ttf is required to compile Enigma])])
+SDL_LIBS="$SDL_LIBS -lSDL2_ttf"
 
-SDL_LIBS="$SDL_LIBS -lSDL_image"
-
-AC_CHECK_LIB(SDL_image, IMG_Init, have_img_init="yes", have_img_init="no")
-if test "$have_img_init" = yes; then
-  AC_DEFINE(SDL_IMG_INIT, , [Whether SDL_image library provides init])
-fi
-
-dnl ----------------------------------------
-dnl Check for SDL mixer library
-dnl ----------------------------------------
-AC_CHECK_LIB(SDL_mixer,main,,[AC_MSG_ERROR([SDL_mixer is required to compile Enigma])])
-
-SDL_LIBS="$SDL_LIBS -lSDL_mixer"
-
-if test "$MINGW32" = no; then
-  AC_CHECK_LIB(SDL_mixer, Mix_QuickLoad_RAW, have_mix_quickload="yes", have_mix_quickload="no")
-  if test "$have_mix_quickload" = no; then
-    AC_MSG_ERROR([SDL_mixer >= 1.2.5 is required to compile Enigma])
-  fi
-fi
-
-AC_CHECK_LIB(SDL_mixer, Mix_Init, have_mix_init="yes", have_mix_init="no")
-if test "$have_mix_init" = yes; then
-  AC_DEFINE(SDL_MIX_INIT, , [Whether SDL_mixer library provides init])
-fi
-
-dnl ----------------------------------------
-dnl Check for SDL_ttf library
-dnl ---------------------------------------
-if test "$MINGW32" = no; then
-  AC_MSG_CHECKING([for SDL_ttf >=2.0.6])
-  AC_RUN_IFELSE([AC_LANG_SOURCE(
-      [[#include <SDL_ttf.h>
-        int main(int argc, char *argv[]) {
-        if (TTF_MAJOR_VERSION < 2)
-          return 1;
-        else if (TTF_MAJOR_VERSION == 2 && TTF_MINOR_VERSION == 0 && TTF_PATCHLEVEL < 6) 
-          return 1;
-        return 0;}]])],
-    [AC_MSG_RESULT([found])],
-    [AC_MSG_ERROR([SDL_ttf >= 2.0.6 not found.])])
-fi
-AC_CHECK_LIB(SDL_ttf, main,,[AC_MSG_ERROR([SDL_ttf is required to compile Enigma])])
-
-SDL_LIBS="$SDL_LIBS -lSDL_ttf"
-
-dnl Add special hack for Mac framework SDL after all other SDL stuff has been done
-dnl Note that SDL development environment must be installed for the build but SDL frameworks must also be installed for the build
-dnl If we had libSDLmain.a, which is not included in the framework, we should be able to get away with only installing framework
 if test "x$MACOSX" = xyes; then
- SDL_STATIC_PREFIX=`$SDL_CONFIG $sdl_config_args --prefix`
- SDL_LIBS="-Wl,-rpath,@loader_path/../Frameworks -framework AudioToolbox -framework AudioUnit -framework Cocoa -framework CoreAudio -framework IOKit -framework CoreFoundation -framework Carbon -framework CoreServices -framework ApplicationServices -framework Foundation -framework AppKit -framework OpenGL -framework SDL -framework SDL_mixer -framework SDL_image -framework SDL_ttf $SDL_STATIC_PREFIX/lib/libSDLmain.a"
-AC_SUBST(SDL_STATIC_PREFIX)
+ SDL2_PREFIX=`$SDL2_CONFIG $sdl2_config_args --variable=libdir`
+ SDL_LIBS="-Wl,-rpath,@loader_path/../lib -framework AudioToolbox -framework AudioUnit -framework Cocoa -framework CoreAudio -framework IOKit -framework CoreFoundation -framework Carbon -framework CoreServices -framework ApplicationServices -framework Foundation -framework AppKit -framework OpenGL -lSDL2 -lSDL2_mixer -lSDL2_image -lSDL2_ttf $SDL2_PREFIX/libSDL2main.a"
+AC_SUBST(SDL2_PREFIX)
 fi
 
 dnl ---------------------------------------
@@ -219,8 +154,6 @@ dnl Check for libpng
 dnl ---------------------------------------
 if test "$MINGW32" = no; then
   AC_CHECK_LIB(png,png_create_write_struct,,[AC_MSG_ERROR([libpng is required to compile Enigma])])
-dnl else
-dnl   AC_CHECK_LIB(png12,png_create_write_struct,,[AC_MSG_ERROR([libpng is required to compile Enigma])])
 fi
 
 dnl ----------------------------------------
@@ -230,13 +163,13 @@ if test "$MINGW32" = yes; then
   AC_MSG_CHECKING([for Xerces release 3.0])
   AC_EGREP_HEADER([gXercesMajVersion = 3],[xercesc/util/XercesVersion.hpp],
       [AC_MSG_RESULT([found])],
-      [AC_MSG_ERROR([not found])])      
+      [AC_MSG_ERROR([not found])])
    AC_CHECK_LIB(xerces-c, main,,[AC_MSG_ERROR([xerces is required to compile Enigma])])
 else
   AC_MSG_CHECKING([for current Xerces release 3.0])
   AC_EGREP_HEADER([gXercesMajVersion = 3],[xercesc/util/XercesVersion.hpp],
       xerces3exp="yes",
-      xerces3exp="no")      
+      xerces3exp="no")
   if test "x$xerces3exp" = xyes; then
     AC_MSG_RESULT([found])
     AC_CHECK_LIB(xerces-c, main,,[AC_MSG_ERROR([xerces is required to compile Enigma])])
@@ -246,7 +179,7 @@ else
     AC_RUN_IFELSE([AC_LANG_PROGRAM([[#include <xercesc/util/XercesVersion.hpp>]],
           [[if (XERCES_VERSION_MAJOR < 2)
               return 1;
-            else if (XERCES_VERSION_MAJOR == 2 && XERCES_VERSION_MINOR < 4) 
+            else if (XERCES_VERSION_MAJOR == 2 && XERCES_VERSION_MINOR < 4)
               return 1;
             return 0;]])],
         [AC_MSG_RESULT([found])],
@@ -256,20 +189,11 @@ else
 fi
 
 dnl ----------------------------------------
-dnl Mac requires libintl, libpng, freetype  and xerces-c to be linked statically and doesn't make that easy
-dnl Handle it by reverting to LIBS before the AC_CHECK_LIBS of png and xerces-c and prepending the static libs
-dnl pkg-config is not convenient to use. This works around in a bug currently in freetype2.pc that puts in extra quotes
+dnl On Mac SDL flags are set up differently. This is a bit of a kludge for it
 dnl ---------------------------------------
 if test "x$MACOSX" = xyes; then
-  if test -z "$with_libintl_prefix" ; then
-    AC_MSG_ERROR([On MacOS --with-libintl-prefix must be specified to find lib/libintl.a for static link])
-  fi
   CFLAGS="$CFLAGS_NOSDL"
   CXXFLAGS="$CXXFLAGS_NOSDL"
-  FREETYPE_PREFIX=`$PKG_CONFIG freetype2 --variable libdir`
-  PNG_PREFIX=`$PKG_CONFIG libpng --variable libdir`
-  XERCESC_PREFIX=`$PKG_CONFIG xerces-c --variable libdir`
-  LIBS="-lz -lbz2 ${FREETYPE_PREFIX//\"/}/libfreetype.a ${PNG_PREFIX//\"/}/libpng.a ${XERCESC_PREFIX//\"/}/libxerces-c.a $LIBS_NOSDL"
 fi
 
 dnl ----------------------------------------
@@ -307,13 +231,13 @@ AC_ARG_ENABLE(tools,
 )
 
 AM_CONDITIONAL(BUILDTOOLS, [test "$enable_tools" = yes])
-AM_CONDITIONAL(BUILDTTF2BMF, [test "$have_sdlttf" = yes -a "$enable_tools" = yes])
+AM_CONDITIONAL(BUILDTTF2BMF, [test "$have_sdl2ttf" = yes -a "$enable_tools" = yes])
 
 dnl ----------------------------------------
 dnl Include experimental features?
 dnl ----------------------------------------
 AC_ARG_ENABLE(experimental,
-  AS_HELP_STRING(--enable-experimental,Include experimental features [default=no]), 
+  AS_HELP_STRING(--enable-experimental,Include experimental features [default=no]),
   , enable_experimental=no)
 if test "x$enable_experimental" = xyes; then
   AC_DEFINE(ENABLE_EXPERIMENTAL, , [Include experimental features])
@@ -324,7 +248,7 @@ dnl Include asserts ?
 dnl ----------------------------------------
 AC_MSG_CHECKING(whether to include assert statements)
 AC_ARG_ENABLE(assert,
-  AS_HELP_STRING(--enable-assert,Include assert statements [default=yes]), 
+  AS_HELP_STRING(--enable-assert,Include assert statements [default=yes]),
   , enable_assert=yes)
 if test "x$enable_assert" = xyes; then
   CXXFLAGS="$CXXFLAGS -DENABLE_ASSERT"
@@ -441,7 +365,7 @@ dnl Configure libraries
 dnl ----------------------------------------------------------
 AC_CONFIG_SUBDIRS(lib-src/zipios++)
 
-AC_CONFIG_FILES([Makefile m4/Makefile  intl/Makefile 
+AC_CONFIG_FILES([Makefile m4/Makefile  intl/Makefile
            data/Makefile
            data/gfx/Makefile
            data/gfx/flags25x15/Makefile
@@ -451,7 +375,10 @@ AC_CONFIG_FILES([Makefile m4/Makefile  intl/Makefile
            data/gfx48/Makefile
            data/gfx64/Makefile
            data/levels/Makefile
-           data/levels/enigma_tutorial/Makefile
+           data/levels/tutorial_advanced/Makefile
+           data/levels/tutorial_basic/Makefile
+           data/levels/tutorial_training/Makefile
+           data/levels/tutorial_old/Makefile
            data/levels/enigma_i/Makefile
            data/levels/enigma_ii/Makefile
            data/levels/enigma_iii/Makefile
@@ -537,4 +464,3 @@ Enigma is now configured
 
 If these values seem to make sense, you can now run make.
 ])
-

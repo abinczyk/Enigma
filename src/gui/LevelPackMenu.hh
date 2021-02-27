@@ -59,11 +59,11 @@ namespace enigma { namespace gui {
         static std::string lastGroupName;
         static int firstDisplayedGroup;
         
-        video::VideoModes vm;
-        video::VideoTileType vtt;
+        VideoTileType vtt;
         int  vh, vv;   // h and v margins due to fullscreen margins
         std::vector<TextButton *> packButtons;
         std::vector<TextButton *> groupButtons;
+        std::vector<Label *> tutorialLines;
 
         HList       *packsHList;
         ImageButton *scrollLeft;
@@ -76,6 +76,8 @@ namespace enigma { namespace gui {
         Widget      *but_new;
         Widget      *but_level;
         Widget      *but_main;
+        StaticTextButton  *but_tutorial1;
+        StaticTextButton  *but_tutorial2;
         
         bool         isLevelMenuSubmenu;
         

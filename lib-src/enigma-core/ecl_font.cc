@@ -15,7 +15,6 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
  */
 #include "ecl_font.hh"
 #include "ecl_geom.hh"
@@ -59,6 +58,17 @@ std::string::size_type ecl::breakString(Font *font, const std::string &str,
         pos = nextpos + 1;
         breakFound = true;
     }
+}
+
+std::vector<std::string> ecl::breakToLines(Font *font, const std::string &str,
+                                   const std::string &breakChars, int targetWidth) {
+    std::vector<std::string> lines;
+    if (str.size() == 0)
+        return lines;
+    std::string::size_type breakPos = breakString(font, str, breakChars, targetWidth);
+    lines = breakToLines(font, str.substr(breakPos), breakChars, targetWidth);
+    lines.insert(lines.begin(), str.substr(0, breakPos).c_str());
+    return lines;
 }
 
 //
@@ -143,7 +153,7 @@ int BitmapFont::get_height() {
 }
 
 Surface *BitmapFont::render(const char *str) {
-    Surface *s = MakeSurface(get_width(str), get_height(), 16);
+    Surface *s = MakeSurface(get_width(str), get_height());
     s->set_color_key(0, 0, 0);
     render(GC(s), 0, 0, str);
     return s;
@@ -164,7 +174,7 @@ void BitmapFont::render(const GC &gc, int x, int y, std::string text, Font *altF
         }
 
         if (len > 1 || advance[int(*p)] == 0) {
-            if (altFont != NULL) {
+            if (altFont != nullptr) {
                 std::string utf8char(p, len);
                 int charWidth = altFont->get_width(utf8char.c_str());
                 width += charWidth;
@@ -197,6 +207,7 @@ Font *ecl::LoadBitmapFont(const char *imgname, const char *descrname) {
 #include "SDL_ttf.h"
 
 namespace {
+
 class TrueTypeFont : public Font {
     // Variables
     TTF_Font *font;
@@ -219,16 +230,22 @@ public:
 
     Surface *render(const char *str);
     void render(const GC &gc, int x, int y, const char *str);
+
+private:
+    SDL_PixelFormat *pixel_format;
 };
-}
+
+}  // namespace
 
 TrueTypeFont::TrueTypeFont(TTF_Font *font_, int r, int g, int b) : font(font_) {
     fgcolor.r = r;
     fgcolor.g = g;
     fgcolor.b = b;
+    pixel_format = SDL_AllocFormat(SDL_PIXELFORMAT_RGB888);
 }
 
 TrueTypeFont::~TrueTypeFont() {
+    SDL_FreeFormat(pixel_format);
     TTF_CloseFont(font);
 }
 
@@ -246,15 +263,15 @@ int TrueTypeFont::get_width(char c) {
 }
 
 Surface *TrueTypeFont::render(const char *str) {
-    SDL_Surface *s = 0;
     SDL_Color bgcolor = {0, 0, 0, 0};
-
-    s = TTF_RenderUTF8_Shaded(font, str, fgcolor, bgcolor);
-    if (s) {
-        SDL_SetColorKey(s, SDL_SRCCOLORKEY, 0);
+    SDL_Surface *si = TTF_RenderUTF8_Shaded(font, str, fgcolor, bgcolor);
+    if (si) {
+        SDL_Surface *s = SDL_ConvertSurface(si, pixel_format, 0);
+        SDL_FreeSurface(si);
+        SDL_SetColorKey(s, SDL_TRUE, 0);
         return Surface::make_surface(s);
     }
-    return MakeSurface(0, get_height(), 16);
+    return MakeSurface(0, get_height());
 }
 
 void TrueTypeFont::render(const GC &gc, int x, int y, const char *str) {

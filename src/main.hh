@@ -20,7 +20,7 @@
 #ifndef ENIGMA_MAIN_HH
 #define ENIGMA_MAIN_HH
 
-#define ENIGMACOMPATIBITLITY 1.21
+#define ENIGMACOMPATIBITLITY 1.30
 #define PREFFILENAME "enigmarc.xml"
 #define RATINGSFILENAME "ratings.xml"
 #define TRUSTED_RELEASE 0.92
@@ -215,7 +215,12 @@ namespace enigma
         DOMErrorReporter *domSerErrorHandler;
         bool errorInit;
         bool isMakePreviews;
-        video::VideoModes selectedVideoMode;
+        bool isMeasurePerformance;
+        FullscreenMode selectedFullscreenMode = VM_NONE;
+        VideoTilesetId selectedFullscreenTilesetId = VTS_NONE;
+        VideoTilesetId selectedWindowTilesetId = VTS_NONE;
+        int selectedWindowSizeFactor = 0;
+        
         bool bossKeyPressed;
 
     private:
@@ -223,6 +228,9 @@ namespace enigma
         void initXerces();
         void initUserDatapaths();
         void updateMac1_00();
+        void createPreviews();
+        void measurePerformance();
+
         double enigmaVersion;
         std::string systemAppDataPath;    // dir path to the apps data
         std::string systemCmdDataPath;    // commandline override of systemAppDataPath

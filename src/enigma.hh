@@ -15,7 +15,6 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
  */
 #ifndef ENIGMA_HH
 #define ENIGMA_HH
@@ -33,7 +32,7 @@ namespace enigma {
 
 enum Player { YIN = 0, YANG = 1 };
 
-enum Color { BLACK = 0, WHITE = 1, BLUE = 2, YELLOW = 3 };
+enum Color { BLACK = 0, WHITE = 1, GLASS = 2, BLUE = 3, YELLOW = 4 };
 
 /* -------------------- Various types -------------------- */
 

@@ -35,6 +35,7 @@
 #include "ecl_system.hh"
 #include "errors.hh"
 #include "world.hh"
+#include "game.hh"
 #include "nls.hh"
 #include "LocalToXML.hh"
 #include "ObjectValidator.hh"
@@ -52,6 +53,7 @@
 #include <locale.h>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <xercesc/dom/DOM.hpp>
@@ -128,6 +130,7 @@ static void usage()
            "    --data -d path Load data from additional directory\n"
            "    --help -h      Show this help\n"
            "    --lang -l lang Set game language\n"
+           "    --l10n path    Set path to translation/localization files\n"
            "    --log          Turn on logging to the standard output\n"
            "    --nograb       Do not use exclusive mouse/keyboard access\n"
            "    --nomusic      Disable music\n"
@@ -152,7 +155,7 @@ namespace
 
         // Variables.
         bool nosound, nomusic, show_help, show_version, do_log, do_assert, force_window;
-        bool dumpinfo, makepreview, show_fps, redirect;
+        bool dumpinfo, makepreview, measureperformance, show_fps, redirect;
         string gamename;
         string datapath;
         string preffilename;
@@ -160,7 +163,7 @@ namespace
 
     private:
         enum {
-            OPT_WINDOW, OPT_GAME, OPT_DATA, OPT_LANG, OPT_PREF
+            OPT_WINDOW, OPT_GAME, OPT_DATA, OPT_LANG, OPT_PREF, OPT_LOCALE
         };
 
         // ArgParser interface.
@@ -177,7 +180,7 @@ namespace
 AP::AP() : ArgParser (app.args.begin(), app.args.end())
 {
     nosound  = nomusic = show_help = show_version = do_log = do_assert = force_window = false;
-    dumpinfo = makepreview = show_fps = redirect = false;
+    dumpinfo = makepreview = measureperformance = show_fps = redirect = false;
     gamename = "";
     datapath = "";
     preffilename = PREFFILENAME;
@@ -192,14 +195,16 @@ AP::AP() : ArgParser (app.args.begin(), app.args.end())
     def (&do_assert,            "assert");
     def (&dumpinfo,             "dumpinfo");
     def (&makepreview,          "makepreview");
+    def (&measureperformance,   "measureperformance");
     def (&show_fps,             "showfps");
     def (&redirect,             "redirect");
     def (&Robinson,             "robinson");
     def (&force_window,         "window", 'w');
     def (OPT_GAME,              "game", true);
-    def (OPT_DATA,              "data", 'd', true);
-    def (OPT_LANG,              "lang", 'l', true);
-    def (OPT_PREF,              "pref", 'p', true);
+    def (OPT_DATA,              "data", true, 'd');
+    def (OPT_LANG,              "lang", true, 'l');
+    def (OPT_PREF,              "pref", true, 'p');
+    def (OPT_LOCALE,            "l10n", true);
 }
 
 void AP::on_option (int id, const string &param)
@@ -221,6 +226,8 @@ void AP::on_option (int id, const string &param)
     case OPT_PREF:
         preffilename = param;
         break;
+    case OPT_LOCALE:
+        app.l10nPath = param;
     }
 }
 
@@ -229,20 +236,16 @@ void AP::on_argument (const string &arg)
     levelnames.push_back (arg);
 }
 
-
-
 /*! Initialize enough of the game to be able to show error messages in
   the window, not on the console. */
-
-
 
 /* -------------------- Application -------------------- */
 
 Application::Application() : wizard_mode (false), nograb (false), language (""),
         defaultLanguage (""), argumentLanguage (""), errorInit (false),
-        isMakePreviews (false), bossKeyPressed (false) {
+        isMakePreviews (false), isMeasurePerformance (false),
+        bossKeyPressed (false), l10nPath("") {
 }
-
 
 void Application::init(int argc, char **argv)
 {
@@ -288,6 +291,11 @@ void Application::init(int argc, char **argv)
         isMakePreviews = true;
     }
 
+    //
+    if (ap.measureperformance) {
+        isMeasurePerformance = true;
+    }
+
     // initialize assertion stop flag
     if (ap.do_assert)
         enigma::noAssert = false;
@@ -331,7 +339,6 @@ void Application::init(int argc, char **argv)
     Log << "Enigma " << getVersionInfo() << "\n";
     Log << "systemFS = \"" << systemFS->getDataPath() << "\"\n";
     Log << "docPath = \"" << docPath << "\"\n";
-    Log << "l10nPath = \"" << l10nPath << "\"\n";
     Log << "prefPath = \"" << prefPath << "\"\n";
 
     // initialize XML -- needs log, datapaths
@@ -352,8 +359,14 @@ void Application::init(int argc, char **argv)
         app.prefs->setProperty("FullScreen", false);
     }
     if (isMakePreviews) {
+        // we will not save the prefs!
         app.prefs->setProperty("VideoModesFullscreen", "-0-");
-        app.prefs->setProperty("VideoModesWindow", "-0-");     // we will not save the prefs!
+        app.prefs->setProperty("FullscreenTileset", "32x32 Standard");
+        app.prefs->setProperty("VideoModesWindow", "-0-");
+        app.prefs->setProperty("WindowWidth", 640);
+        app.prefs->setProperty("WindowHeight", 480);
+        app.prefs->setProperty("WindowSizeFactor", 1);
+        app.prefs->setProperty("WindowTileset", "32x32 Standard");
     }
 
     // initialize user data paths -- needs preferences, system datapaths
@@ -388,10 +401,13 @@ void Application::init(int argc, char **argv)
         exit(1);
     }
     std::atexit(SDL_Quit);
-    SDL_EnableUNICODE(1);
-    const SDL_version* vi = SDL_Linked_Version();
-    Log << ecl::strf("SDL Version: %u.%u.%u\n", vi->major, vi->minor, vi->patch);
 
+    SDL_version sdl_version;
+    SDL_GetVersion(&sdl_version);
+    Log << ecl::strf("SDL Version: %u.%u.%u\n", sdl_version.major, sdl_version.minor,
+                     sdl_version.patch);
+
+    const SDL_version *vi;
     vi = TTF_Linked_Version();
     Log <<  ecl::strf("SDL_ttf Version: %u.%u.%u\n", vi->major, vi->minor, vi->patch);
     if(TTF_Init() == -1) {
@@ -410,11 +426,8 @@ void Application::init(int argc, char **argv)
 #endif
 
     // ----- Initialize video subsystem
-    video::Init();
-    video::SetCaption ("Enigma v" PACKAGE_VERSION);
-    video::SetMouseCursor(enigma::LoadImage("cur-magic"), 4, 4);
-    video::ShowMouse();
-    SDL_ShowCursor(0);
+    VideoInit();
+    video_engine->SetCaption("Enigma v" PACKAGE_VERSION);
     errorInit = true;
 
 
@@ -473,44 +486,12 @@ void Application::init(int argc, char **argv)
     enigma::Randomize(true);
 
     if (isMakePreviews) {
-        app.state->setProperty("Difficulty", DIFFICULTY_HARD); // will not be saved
-        std::set<lev::Proxy *> proxies = lev::Proxy::getProxies();
-        int size = proxies.size();
-        std::set<lev::Proxy *>::iterator it;
-        std::string message = ecl::strf("Make 3 x %d previews on system path '%s'",
-                size, systemAppDataPath.c_str());
-        Log << message;
+        createPreviews();
+        return;
+    }
 
-        Screen *scr = video::GetScreen();
-        GC gc (scr->get_surface());
-        Font *f = enigma::GetFont("menufont");
-        f->render (gc, 80, 240, message.c_str());
-        set_color(gc, 200,200,200);
-        hline(gc, 170, 280, 300);
-        hline(gc, 170, 300, 300);
-        vline(gc, 170, 280, 20);
-        vline(gc, 470, 280, 20);
-        scr->update_all ();
-        scr->flush_updates();
-
-        int i = 0;
-        for (int m=0; m<3; m++) {
-            switch (m) {
-                case 0 : video::SetThumbInfo(120, 78, "-120x78"); break;
-                case 1 : video::SetThumbInfo(160, 104, "-160x104"); break;
-                case 2 : video::SetThumbInfo(60, 39, "-60x39"); break;
-            }
-            for (it = proxies.begin(); it != proxies.end(); it++, i++) {
-                Log << "Make preview " << (*it)->getId() << "\n";
-                gui::LevelPreviewCache::makeSystemPreview(*it, systemAppDataPath);
-                // i counts from 0 to 3*size (3 video modes),
-                // this makes up for the factor 100 = 300 / 3.
-                vline(gc, 170 + i*100 / size, 280, 20);
-                scr->update_all ();
-                scr->flush_updates();
-            }
-        }
-        Log << "Make preview finished succesfully\n";
+    if (isMeasurePerformance) {
+        measurePerformance();
         return;
     }
 
@@ -589,16 +570,6 @@ void Application::initSysDatapaths(const std::string &prefFilename)
     }
 #elif MACOSX
     docPath = progDir + "/../Resources/doc";
-#endif
-
-    // l10nPath
-    l10nPath = LOCALEDIR;    // defined in src/Makefile.am
-#ifdef __MINGW32__
-    if (progDirExists) {
-        l10nPath = progDir + "/" + l10nPath;
-    }
-#elif MACOSX
-    l10nPath = progDir + "/../Resources/locale";
 #endif
 
     // prefPath
@@ -807,9 +778,86 @@ void Application::updateMac1_00() {
 }
 #endif
 
+void Application::createPreviews() {
+    app.state->setProperty("Difficulty", DIFFICULTY_HARD);  // will not be saved
+    const auto &proxies = lev::Proxy::getProxies();
+
+    const std::string message =
+        ecl::strf("Make 3 x %d previews on system path '%s'", static_cast<int>(proxies.size()),
+                  systemAppDataPath.c_str());
+    Log << message;
+
+    Screen *scr = video_engine->GetScreen();
+    GC gc(scr->get_surface());
+    Font *f = enigma::GetFont("menufont");
+    f->render(gc, 80, 240, message.c_str());
+    set_color(gc, 200, 200, 200);
+
+    const int kProgressWidth = 300;
+    hline(gc, 170, 280, kProgressWidth);
+    hline(gc, 170, 300, kProgressWidth);
+    vline(gc, 170, 280, 20);
+    vline(gc, 470, 280, 20);
+    scr->update_all();
+    scr->flush_updates();
+
+    int i = 0;
+    const int num_thumbnails = 3 * proxies.size();
+    ThumbnailInfo thumbinfos[] = {
+        {120, 78, 0, "-120x78"}, {160, 104, 0, "-160x104"}, {60, 39, 0, "-60x39"}};
+    for (auto &thumbinfo : thumbinfos) {
+        for (auto &level : proxies) {
+            Log << "Make preview " << level->getId() << "\n";
+            gui::LevelPreviewCache::makeSystemPreview(level, thumbinfo, systemAppDataPath);
+            vline(gc, 170 + kProgressWidth * (float(i) / num_thumbnails), 280, 20);
+            scr->update_all();
+            scr->flush_updates();
+            i++;
+        }
+    }
+    Log << "Make preview finished successfully.\n";
+}
+
+void Application::measurePerformance() {
+    if (lev::Index::setCurrentIndex(INDEX_STARTUP_PACK_NAME)) {
+        std::clock_t c_start, c_end;
+        while (!app.bossKeyPressed) {
+            lev::Index::getCurrentIndex()->setCurrentPosition(0);
+            c_start = std::clock();
+            game::StartGame();
+            c_end = std::clock();
+            fprintf(stdout, "%.1f ms\n", 1000.0 * (c_end - c_start) / CLOCKS_PER_SEC);
+        }
+    } else {
+        fprintf(stderr, "No levels defined for performance test. Please provide them as arguments to the command line.\n");
+    }
+}
+
 void Application::init_i18n()
 {
     // Initialize the internationalization subsystem
+
+    // l10nPath, might already be defined by command line option
+    if (l10nPath == "") {
+        app.prefs->getProperty("LocalizationPath", l10nPath);
+        if (l10nPath == "") {
+            l10nPath = LOCALEDIR;    // defined in src/Makefile.am
+#ifdef __MINGW32__
+            std::string progDir;          // directory path part of args[0]
+            std::string progName;         // filename part of args[0]
+            bool progDirExists = split_path(progCallPath, &progDir, &progName);
+            if (progDirExists) {
+                l10nPath = progDir + "/" + l10nPath;
+            }
+#elif MACOSX
+            std::string progDir;          // directory path part of args[0]
+            std::string progName;         // filename part of args[0]
+            bool progDirExists = split_path(progCallPath, &progDir, &progName);
+            l10nPath = progDir + "/../Resources/locale";
+#endif
+        }
+    }
+    Log << "l10nPath = \"" << l10nPath << "\"\n";
 
     // priorities:
     // language: command-line --- user option --- system (environment)
@@ -830,6 +878,8 @@ void Application::init_i18n()
 
     nls::SetMessageLocale (app.language);
 
+    // TODO: Make sure that bindtextdomain accepts UTF-8, then replace
+    // by XMLtoUtf8(LocalToXML(app.l10nPath.c_str()).x_str()).c_str().
     bindtextdomain (PACKAGE_NAME, app.l10nPath.c_str());
 
     // SDL_ttf does not handle arbitrary encodings, so use UTF-8
@@ -894,20 +944,25 @@ void Application::setUserImagePath(std::string newPath) {
 
 void Application::shutdown()
 {
+    if(strlen(SDL_GetError()) > 0)
+        Log << "Last SDL error: " << SDL_GetError() << "\n";
     oxyd::Shutdown();
     enigma::ShutdownWorld();
     display::Shutdown();
     if (!isMakePreviews) { // avoid saves on preview generation
+        if (!video_engine->IsFullscreen())
+            video_engine->SaveWindowSizePreferences();
         lev::RatingManager::instance()->save();
         if (lev::PersistentIndex::historyIndex != NULL)
             lev::PersistentIndex::historyIndex->save();
         lev::ScoreManager::instance()->shutdown();
         app.state->shutdown();
         app.prefs->shutdown();
+        lev::Index::shutdown();
     }
     // now we shutdown SDL - no error reports will be possible!
     app.errorInit = false;
-    video::Shutdown();
+    video_engine->Shutdown();
     sound::Shutdown();
     enet_deinitialize();
     enigma::ShutdownCurl();
@@ -926,7 +981,7 @@ int main(int argc, char **argv)
 {
     try {
         app.init(argc,argv);
-        if (!app.isMakePreviews)
+        if (!app.isMakePreviews && !app.isMeasurePerformance)
             gui::ShowMainMenu();
         app.shutdown();
         return 0;

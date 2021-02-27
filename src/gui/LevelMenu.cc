@@ -22,6 +22,7 @@
 
 #include "gui/HelpMenu.hh"
 #include "gui/LevelPackMenu.hh"
+#include "gui/LevelPackComposer.hh"
 
 #include "game.hh"
 #include "main.hh"
@@ -31,7 +32,7 @@
 #include "server.hh"
 #include "MusicManager.hh"
 #include "StateManager.hh"
-#include "video.hh"
+#include "lev/PersistentIndex.hh"
 #include "lev/Index.hh"
 
 using namespace std;
@@ -91,10 +92,10 @@ namespace enigma { namespace gui {
             }
         };
 
-        const video::VMInfo &vminfo = *video::GetInfo();
+        const VMInfo &vminfo = *video_engine->GetInfo();
         const int vshrink = vminfo.width < 640 ? 1 : 0;
-        video::VideoTileType vtt = vminfo.tt;
-        
+        VideoTileType vtt = vminfo.tt;
+
         int preview_y = param[vtt].vmargin + 2*param[vtt].vgap_info + param[vtt].vgap_info_prev;
         ecl::Rect previewarea(param[vtt].hmargin_prev, preview_y,
                 vminfo.width - param[vtt].hmargin_nav - param[vtt].hsize_nav - param[vtt].hgap_prev_nav, 
@@ -193,6 +194,7 @@ namespace enigma { namespace gui {
         N_("Escape:"),              N_("Skip to main menu"),
         "F1:",                      N_("Show this help"),
         "F5:",                      0, // see below
+        "F6:",                      N_("Add all to clipboard"),
         "F7:",                      N_("Update levelpack"),
         N_("Arrows:"),              N_("Select level"),
         N_("Return:"),              N_("Play selected level"),
@@ -227,6 +229,17 @@ namespace enigma { namespace gui {
                     break;
                 case SDLK_F5:
                     next_unsolved();
+                    break;
+                case SDLK_F6:
+                    /*if (lev::Index::getCurrentIndex() != NULL) {
+                        lev::Variation var;
+                        for (int pos = 0; pos < lev::Index::getCurrentIndex()->size(); pos++) {
+                            var = lev::Index::getCurrentIndex()->getVariation(pos);
+                            clipboard->appendProxy(lev::Index::getCurrentIndex()->getProxy(pos),
+                                    var.ctrl, var.unit, var.target, var.extensions);
+                        }
+                    }*/
+                    gui::LevelPackComposer::addAllFromIndexToClipboard(lev::Index::getCurrentIndex());
                     break;
                 case SDLK_F7:
                     lev::Index::getCurrentIndex()->updateFromFolder();
@@ -308,8 +321,8 @@ namespace enigma { namespace gui {
         lev::ScoreManager *scm = lev::ScoreManager::instance();
         lev::Proxy *curProxy = ind->getCurrent();
         int difficulty = app.state->getInt("Difficulty");
-        
-        lbl_lpinfo->set_text(ecl::strf(_("%s: %d levels"),
+
+        lbl_lpinfo->set_text(ecl::strf(ngettext("%s: %d level", "%s: %d levels", size),
                 ind->getName().c_str(), size));
     
         if (size == 0) {
@@ -421,9 +434,9 @@ namespace enigma { namespace gui {
     
     void LevelMenu::draw_background(ecl::GC &gc) 
     {
-        const video::VMInfo *vminfo = video::GetInfo();
-        
-        video::SetCaption(("Enigma - Level Menu"));
+        const VMInfo *vminfo = video_engine->GetInfo();
+
+        set_caption(("Enigma - Level Menu"));
         sound::StartMenuMusic();
     
         blit(gc, vminfo->mbg_offsetx, vminfo->mbg_offsety, enigma::GetImage("menu_bg", ".jpg"));
